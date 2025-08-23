@@ -1184,6 +1184,75 @@ wss.on("connection", (ws: WebSocket) => {
           break;
         }
 
+        case "kickParticipant": {
+          const { targetPeerId } = data;
+          const peer = getPeerFromSocket(ws);
+          
+          if (!peer) {
+            ws.send(
+              JSON.stringify({
+                reqId: data.reqId,
+                error: "Peer not found",
+              })
+            );
+            return;
+          }
+
+          const roomId = peerRoomMap.get(peer.id);
+          const room = getRoom(roomId!);
+          if (!room) {
+            ws.send(
+              JSON.stringify({
+                reqId: data.reqId,
+                error: "Room not found",
+              })
+            );
+            return;
+          }
+
+          const targetPeer = room.peers[targetPeerId];
+          if (!targetPeer) {
+            ws.send(
+              JSON.stringify({
+                reqId: data.reqId,
+                error: "Target peer not found",
+              })
+            );
+            return;
+          }
+
+          console.log(
+            `[mediasoup] Kicking peer ${targetPeerId} from room ${roomId}`
+          );
+
+          // Send kick notification to the target peer
+          if (targetPeer.ws.readyState === WebSocket.OPEN) {
+            targetPeer.ws.send(
+              JSON.stringify({
+                type: "user-kicked",
+                message: "You have been removed from the call by the host",
+              })
+            );
+            
+            // Close the WebSocket connection
+            setTimeout(() => {
+              targetPeer.ws.close();
+            }, 1000); // Give time for the message to be received
+          }
+
+          // Clean up the peer
+          cleanupPeer(targetPeerId);
+
+          ws.send(
+            JSON.stringify({
+              reqId: data.reqId,
+              type: "kickParticipantResponse",
+              success: true,
+            })
+          );
+          break;
+        }
+
         default:
           ws.send(
             JSON.stringify({

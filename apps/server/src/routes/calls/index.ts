@@ -387,6 +387,8 @@ callsRoutes.post("/record-leave", async (c) => {
 // GET /api/calls/:id/check-access
 callsRoutes.get("/:id/check-access", async (c) => {
   try {
+
+    console.log("[CHECK-ACCESS] GET /api/calls/:id/check-access called");
     const callId = c.req.param("id");
     const user = c.get("user");
 
@@ -983,6 +985,92 @@ callsRoutes.post("/:id/hide", async (c) => {
       return c.json({ success: true, message: "Call already hidden" });
     }
     return c.json({ error: "Failed to hide call" }, 500);
+  }
+});
+
+// POST /api/calls/:id/kick - Remove a participant from call
+callsRoutes.post("/:id/kick", async (c) => {
+  try {
+    const callId = c.req.param("id");
+    const user = c.get("user");
+
+    if (!user || !user.id) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    if (!callId) {
+      return c.json({ error: "Call ID is required" }, 400);
+    }
+
+    const body = await c.req.json();
+    const { userId } = body;
+
+    if (!userId) {
+      return c.json({ error: "User ID is required" }, 400);
+    }
+
+    // Check if the current user is the creator of the call
+    const call = await db
+      .select({ creatorId: calls.creatorId })
+      .from(calls)
+      .where(eq(calls.id, callId))
+      .limit(1);
+
+    if (!call || call.length === 0 || !call[0]) {
+      return c.json({ error: "Call not found" }, 404);
+    }
+
+    const callData = call[0];
+    if (callData.creatorId !== user.id) {
+      return c.json(
+        { error: "Only the call creator can remove participants" },
+        403
+      );
+    }
+
+    // Prevent creator from kicking themselves
+    if (userId === user.id) {
+      return c.json(
+        { error: "Call creator cannot remove themselves from the call" },
+        400
+      );
+    }
+
+    // Remove the participant from the call
+    const result = await db
+      .delete(callParticipants)
+      .where(
+        and(
+          eq(callParticipants.callId, callId),
+          eq(callParticipants.userId, userId)
+        )
+      );
+
+    console.log(
+      `[KICK-PARTICIPANT] Removed user ${userId} from call ${callId}`
+    );
+
+    // Trigger WebSocket kick event through mediasoup server
+    // This will notify the kicked user to disconnect and show them a message
+    try {
+      // Here we would typically have access to the WebSocket connection
+      // or a way to communicate with the mediasoup server to send the kick event
+      // For now, we'll rely on the frontend to handle the WebSocket integration
+      console.log(
+        `[KICK-PARTICIPANT] WebSocket kick notification should be sent to user ${userId}`
+      );
+    } catch (wsError) {
+      console.error("Error sending WebSocket kick notification:", wsError);
+      // Don't fail the API call if WebSocket notification fails
+    }
+
+    return c.json({
+      success: true,
+      message: "Participant removed successfully",
+    });
+  } catch (error) {
+    console.error("Error kicking participant:", error);
+    return c.json({ error: "Failed to remove participant" }, 500);
   }
 });
 

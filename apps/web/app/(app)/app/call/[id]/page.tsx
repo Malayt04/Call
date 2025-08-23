@@ -123,6 +123,38 @@ function CallPageContent() {
     dispatch,
   ]);
 
+  // Handle user-kicked event
+  useEffect(() => {
+    if (!mediasoup.socket) return;
+
+    const handleUserKicked = async (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data?.type === "user-kicked") {
+          // Disconnect from the call immediately
+          handleHangup();
+          
+          // Show notification to the user
+          toast.error(data.message || "You have been removed from the call by the host", {
+            duration: 5000,
+          });
+          
+          // Redirect to the call history or homepage after a short delay
+          setTimeout(() => {
+            router.push("/app");
+          }, 2000);
+        }
+      } catch (e) {
+        console.error("Error handling user-kicked event:", e);
+      }
+    };
+
+    mediasoup.socket.addEventListener("message", handleUserKicked);
+    return () => {
+      mediasoup.socket?.removeEventListener("message", handleUserKicked);
+    };
+  }, [mediasoup.socket, handleHangup, router]);
+
   useEffect(() => {
     const callId = params?.id as string;
     if (callId) {

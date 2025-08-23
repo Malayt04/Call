@@ -156,6 +156,7 @@ export function ChatSidebar({
             isCreator={isCreator}
             participants={participants}
             currentUserId={userId}
+            socket={socket}
           />
         </div>
       </div>

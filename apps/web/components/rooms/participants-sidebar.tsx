@@ -19,6 +19,7 @@ import {
   FiSearch,
   FiMail,
   FiPhone,
+  FiUserX,
 } from "react-icons/fi";
 import { toast } from "sonner";
 import { CALLS_QUERY } from "@/lib/QUERIES";
@@ -53,6 +54,7 @@ interface ParticipantsSidebarProps {
   isCreator: boolean;
   participants: Participant[];
   currentUserId: string;
+  socket?: WebSocket | null;
 }
 
 export function ParticipantsSidebar({
@@ -60,12 +62,14 @@ export function ParticipantsSidebar({
   isCreator,
   participants,
   currentUserId,
+  socket,
 }: ParticipantsSidebarProps) {
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [invitingContact, setInvitingContact] = useState<string | null>(null);
+  const [kickingParticipant, setKickingParticipant] = useState<string | null>(null);
   const previousJoinRequestsRef = useRef<JoinRequest[]>([]);
 
   const creator = participants.find((p) => p.isCreator);
@@ -200,6 +204,60 @@ export function ParticipantsSidebar({
     }
   };
 
+  const handleKickParticipant = async (userId: string, displayName: string) => {
+    if (!isCreator) {
+      toast.error("Only the call creator can remove participants");
+      return;
+    }
+
+    if (userId === currentUserId) {
+      toast.error("You cannot remove yourself from the call");
+      return;
+    }
+
+    setKickingParticipant(userId);
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/calls/${callId}/kick`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({ userId }),
+        }
+      );
+
+      if (response.ok) {
+        toast.success(`${displayName} has been removed from the call`);
+        
+        // Send WebSocket message to kick the participant
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          try {
+            socket.send(JSON.stringify({
+              type: "kickParticipant",
+              targetPeerId: userId,
+              callId: callId,
+              reqId: crypto.randomUUID(),
+            }));
+            console.log(`[KICK] Sent WebSocket kick message for user ${userId}`);
+          } catch (wsError) {
+            console.error("Error sending WebSocket kick message:", wsError);
+          }
+        }
+      } else {
+        const data = await response.json();
+        toast.error(data.error || "Failed to remove participant");
+      }
+    } catch (error) {
+      console.error("Error kicking participant:", error);
+      toast.error("Failed to remove participant");
+    } finally {
+      setKickingParticipant(null);
+    }
+  };
+
   // Filter contacts that are not already participants
   const availableContacts = contacts.filter(
     (contact) => !participants.some((p) => p.id === contact.id || p.displayName === contact.email || p.name === contact.email)
@@ -271,6 +329,24 @@ export function ParticipantsSidebar({
                     </p>
                   </div>
                 </div>
+                
+                {/* Show kick button for creators, but not for current user */}
+                {isCreator && participant.id !== currentUserId && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => handleKickParticipant(participant.id, participant.displayName || "Participant")}
+                    disabled={kickingParticipant === participant.id}
+                    className="flex-shrink-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                    title="Remove from call"
+                  >
+                    {kickingParticipant === participant.id ? (
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-red-500 border-t-transparent" />
+                    ) : (
+                      <FiUserX className="h-4 w-4" />
+                    )}
+                  </Button>
+                )}
               </div>
             ))}
         </div>
